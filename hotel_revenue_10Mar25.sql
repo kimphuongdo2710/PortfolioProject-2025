@@ -119,12 +119,13 @@ JOIN customers_senior c
 GROUP BY c.customer_id, check_in, check_out
 HAVING COUNT(*) > 1
 
-	-- bất thường 3: Kiểm tra thanh toán nhiều lần từ cùng một thẻ (Multiple Payments) - Result: ...
+	-- bất thường 3: Kiểm tra thanh toán nhiều lần từ cùng một thẻ (Multiple Payments) - Result: No card_number data
 	
-SELECT *
+SELECT b.booking_id, p.card_number, COUNT(p.card_number) AS card_used_count
 FROM dbo.payments_senior p
 JOIN bookings_senior b
 	ON p.booking_id = b.booking_id
+HAVING COUNT(p.card_number) >3
 
 	-- bất thường 4: Tìm những khách đặt phòng nhưng không đến (No-Show Fraud) - Result: 106 rows
 
@@ -139,16 +140,91 @@ WHERE status = 'Cancelled'
 GROUP BY c.customer_id
 HAVING COUNT(*) > 3
 
-
------------
-	-- Có ai đặt phòng liên tục nhưng hủy nhiều lần không?
-	-- Có nhóm khách nào lợi dụng chính sách đặt phòng để gian lận không?
+----------------------------------------
 
 -- 2. **Doanh thu & Dịch vụ** - Kết quả mong đợi: Một bảng phân tích tổng quan về hiệu suất đặt phòng, doanh thu, khách hàng và dịch vụ
-    -- Những dịch vụ nào được sử dụng nhiều nhất?
-	-- Dịch vụ nào mang lại doanh thu cao nhất?
-    -- Khách sạn có phụ thuộc quá nhiều vào một nhóm khách hàng cụ thể không?
+    -- 2.1 Những dịch vụ nào được sử dụng nhiều nhất?
+
+SELECT TOP 1 s.service_name, su.service_id, SUM(quantity) AS total_quantity
+FROM service_usage_senior su
+LEFT JOIN services_senior s
+	ON su.service_id = s.service_id
+GROUP BY s.service_name, su.service_id
+ORDER BY SUM(quantity) DESC
+
+	-- 2.2 Dịch vụ nào mang lại doanh thu cao nhất?
+SELECT TOP 1 s.service_name, su.service_id, SUM(total_price) AS total_revenue
+FROM service_usage_senior su
+LEFT JOIN services_senior s
+	ON su.service_id = s.service_id
+GROUP BY s.service_name, su.service_id
+ORDER BY SUM(total_price) DESC
+
+    2.4 Khách sạn có phụ thuộc quá nhiều vào một nhóm khách hàng cụ thể không?
+	-- 2.4.1 Tính Tỷ Lệ Đóng Góp của Nhóm Khách Hàng Chính --> Result: 16.14%, means Khách hàng phân bố đồng đều, ít phụ thuộc vào nhóm khách hàng lớn.
+
+	WITH customer_booking_count AS (
+	SELECT b.customer_id, COUNT(*) AS customer_booking_count
+	FROM bookings_senior b
+	GROUP BY b.customer_id),
+
+	total_booking_count AS (
+	SELECT SUM(customer_booking_count) AS total_booking_count
+	FROM customer_booking_count),
+
+	top_customer AS(
+	SELECT TOP 10 PERCENT customer_id, customer_booking_count
+	FROM customer_booking_count
+	ORDER BY customer_booking_count DESC),
+
+	top_customer_bk_count AS(
+	SELECT SUM(customer_booking_count) AS total_top_bk
+	FROM top_customer)
+
+	SELECT CAST(ROUND(total_top_bk*100.0/total_booking_count, 2) AS DECIMAL(10,2)) AS customer_contr
+	FROM total_booking_count, top_customer_bk_count
+
+-- 2.4.2 Chỉ Số Phân Bố Doanh Thu (Revenue Concentration Ratio)
+
+WITH 
+	customer_revenue AS(
+	SELECT c.customer_id, SUM(p.amount) AS revenue
+	FROM bookings_senior b
+	JOIN customers_senior c
+		ON b.customer_id = c.customer_id
+	JOIN payments_senior p
+		ON b.booking_id = p.booking_id
+	GROUP BY c.customer_id),
+
+	top_customer AS(
+	SELECT TOP 10 PERCENT customer_id, revenue
+	FROM customer_revenue
+	ORDER BY revenue DESC),
+
+	top_customer_revenue AS(
+	SELECT SUM(revenue) AS total_top_revenue
+	FROM top_customer),
+
+	total_revenue AS (
+	SELECT SUM(amount) AS total_revenue
+	FROM payments_senior)
+
+
+SELECT CAST(ROUND(total_top_revenue*100.0/total_revenue, 2) AS DECIMAL(10,2)) AS customer_contr_revenue
+FROM top_customer_revenue, total_revenue
+
+
 	-- Phòng nào có doanh thu cao nhất?
+
+SELECT TOP 1 room_type, SUM(amount) AS revenue
+FROM bookings_senior b
+LEFT JOIN rooms_senior r
+	ON r.room_id = b.room_id
+LEFT JOIN payments_senior p
+	ON b.booking_id = p.booking_id
+GROUP BY room_type
+ORDER BY 2 DESC
+
 
 --3. **Tối ưu hóa giá phòng** - Kết quả mong đợi: Một mô hình đề xuất giá phòng theo thời gian để tối đa hóa doanh thu
     -- Giá phòng hiện tại có ảnh hưởng đến lượng đặt phòng không?
