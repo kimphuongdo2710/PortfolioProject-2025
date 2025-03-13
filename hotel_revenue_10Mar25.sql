@@ -228,7 +228,36 @@ ORDER BY 2 DESC
 
 --3. **Tối ưu hóa giá phòng** - Kết quả mong đợi: Một mô hình đề xuất giá phòng theo thời gian để tối đa hóa doanh thu
     -- Giá phòng hiện tại có ảnh hưởng đến lượng đặt phòng không?
-    -- Nên điều chỉnh giá theo mùa hay không?
+
+	-- Check number_of_bookings and avg_price
+SELECT r.room_type, COUNT(booking_id) AS room_nite, CAST(AVG(r.price_per_night) AS DECIMAL(10,2)) AS avg_price
+FROM bookings_senior b
+LEFT JOIN rooms_senior r
+	ON b.room_id = r.room_id
+GROUP BY r.room_type
+ORDER BY avg_price DESC
+
+	-- Check occupancy rate and avg_price
+WITH booking_count AS (
+	SELECT  rooms.room_type, COUNT(*) AS booked_count, CAST(AVG(r.price_per_night) AS DECIMAL (10,2)) AS avg_price
+	FROM dbo.bookings_senior bks
+	LEFT JOIN dbo.rooms_senior rooms
+		ON bks.room_id = rooms.room_id
+	LEFT JOIN rooms_senior r
+		ON bks.room_id = r.room_id
+	WHERE bks.status = 'Confirmed'
+	GROUP BY rooms.room_type), 
+
+    total_booking_count AS (
+	SELECT SUM(booked_count) AS total_booked
+	FROM booking_count)
+
+SELECT room_type, CAST(ROUND(booked_count*100.0/total_booked, 2) AS DECIMAL(10,1)) AS occupancy_rate, avg_price
+FROM booking_count
+CROSS JOIN total_booking_count
+ORDER BY occupancy_rate ASC
+
+-- Nên điều chỉnh giá theo mùa hay không?
 	-- Mức giá tối ưu để tối đa hóa lợi nhuận là bao nhiêu?
 
 --4. **Tỷ lệ hủy phòng**:
