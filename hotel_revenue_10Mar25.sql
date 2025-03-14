@@ -258,6 +258,96 @@ CROSS JOIN total_booking_count
 ORDER BY occupancy_rate ASC
 
 -- Nên điều chỉnh giá theo mùa hay không?
+
+-- Phân tích số lượng đặt phòng theo mùa & room_type --> Analysis: Summer-hot season, 
+
+WITH season AS (
+		SELECT b.booking_id, r.room_type,
+			CASE 
+				WHEN MONTH(check_in) IN (1,2,3) THEN 'Winter'
+				WHEN MONTH(check_in) IN (4,5,6) THEN 'Spring'
+				WHEN MONTH(check_in) IN (7,8,9) THEN 'Summer'
+				WHEN MONTH(check_in) IN (10,11,12) THEN 'Autumn'
+			END AS season
+		FROM bookings_senior b
+		JOIN rooms_senior r ON b.room_id = r.room_id 
+		WHERE b.status = 'Confirmed'),
+
+	component_booked AS (
+		SELECT season, room_type, COUNT(*) AS component_booked
+		FROM season
+		GROUP BY season, room_type)
+
+SELECT s.season, r.room_type,COUNT(b.booking_id), CAST(AVG(price_per_night) AS DECIMAL (10,2)) AS avg_price, 
+		CAST((component_booked*100.0/SUM(component_booked) OVER (PARTITION BY s.season)) AS DECIMAL (10,2)) AS occupancy_rate
+FROM bookings_senior b
+JOIN rooms_senior r ON r.room_id = b.room_id
+JOIN season s ON b.booking_id = s.booking_id
+JOIN component_booked cb ON s.season = cb.season
+GROUP BY s.season, r.room_type, cb.component_booked
+ORDER BY 4 DESC
+
+SELECT CASE 
+			WHEN MONTH(check_in) IN (1,2,3) THEN 'Winter'
+			WHEN MONTH(check_in) IN (4,5,6) THEN 'Spring'
+			WHEN MONTH(check_in) IN (7,8,9) THEN 'Summer'
+			WHEN MONTH(check_in) IN (10,11,12) THEN 'Autumn'
+		END AS season, room_type, price_per_night
+FROM bookings_senior b
+JOIN rooms_senior r ON b.room_id = r.room_id
+WHERE b.status = 'confirmed'
+ORDER BY 1
+
+SELECT CASE 
+			WHEN MONTH(check_in) IN (1,2,3) THEN 'Winter'
+			WHEN MONTH(check_in) IN (4,5,6) THEN 'Spring'
+			WHEN MONTH(check_in) IN (7,8,9) THEN 'Summer'
+			WHEN MONTH(check_in) IN (10,11,12) THEN 'Autumn'
+		END AS season, room_type, COUNT(*) AS booked_count
+FROM bookings_senior b
+JOIN rooms_senior r ON b.room_id = r.room_id
+WHERE b.status = 'confirmed'
+GROUP BY CASE 
+			WHEN MONTH(check_in) IN (1,2,3) THEN 'Winter'
+			WHEN MONTH(check_in) IN (4,5,6) THEN 'Spring'
+			WHEN MONTH(check_in) IN (7,8,9) THEN 'Summer'
+			WHEN MONTH(check_in) IN (10,11,12) THEN 'Autumn'
+		END, room_type
+ORDER BY 3 DESC
+
+
+	-- Phân tích số lượng đặt phòng theo mùa --> Analysis: Summer-hot season, 
+SELECT year, season,
+		COUNT(CASE WHEN status = 'Confirmed' THEN 1 ELSE NULL END) AS confirmed_count,
+		COUNT(CASE WHEN status = 'Pending' THEN 1 ELSE NULL END) AS pending_count,
+		COUNT(CASE WHEN status = 'Cancelled' THEN 1 ELSE NULL END) AS cancelled_count,
+		COUNT(*) AS total_count,
+		CAST(AVG(price_per_night) AS DECIMAL(10,2)) AS avr_price
+FROM (SELECT year(b.created_at) AS year,
+		CASE 
+			WHEN MONTH(check_in) IN (1,2,3) THEN 'Winter'
+			WHEN MONTH(check_in) IN (4,5,6) THEN 'Spring'
+			WHEN MONTH(check_in) IN (7,8,9) THEN 'Summer'
+			WHEN MONTH(check_in) IN (10,11,12) THEN 'Autumn'
+		END AS season, b.status, r.price_per_night
+		FROM bookings_senior b
+		JOIN rooms_senior r ON b.room_id = r.room_id
+		) AS subquery
+GROUP BY season, year
+ORDER BY 1,2
+
+	-- Phân tích số lượng đặt phòng theo tháng  
+	--> RESULT: Low season: Feb, Mar, Aug, Nov, Dec. Mid-season: Apr, May, Sep, Oct. High season: Jan, Jun, Jul.
+
+WITH total_count AS (
+		SELECT FORMAT(created_at, 'MM/yyyy') AS created_at, COUNT(booking_id) AS total_count
+		FROM bookings_senior b
+		GROUP BY FORMAT(created_at, 'MM/yyyy'))
+
+SELECT created_at, total_count, AVG(total_count) OVER () AS avr_count
+FROM total_count
+ORDER BY RIGHT(created_at,4) + LEFT(created_at,2)
+
 	-- Mức giá tối ưu để tối đa hóa lợi nhuận là bao nhiêu?
 
 --4. **Tỷ lệ hủy phòng**:
