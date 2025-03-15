@@ -140,6 +140,38 @@ WHERE status = 'Cancelled'
 GROUP BY c.customer_id
 HAVING COUNT(*) > 3
 
+	-- bất thường 5: Tìm những booking hủy đặt phòng nhưng lại phát sinh giao dịch trong cùng số booking hủy 
+				--> Result: 1,258 bookings
+
+	WITH CTE_cancelled AS (
+		SELECT b.customer_id, b.booking_id, SUM(s.quantity) AS total_quantity
+		FROM bookings_senior b
+		LEFT JOIN service_usage_senior s
+			ON b.booking_id = s.booking_id
+		WHERE status = 'Cancelled'
+		GROUP BY b.customer_id, b.booking_id
+		HAVING SUM(quantity) > 0 )
+
+	SELECT 'Summary' AS type,
+			COUNT(DISTINCT customer_id) AS customer_id, 
+			COUNT(DISTINCT booking_id) AS booking_id, 
+			SUM(total_quantity) AS total_quantity
+	FROM CTE_cancelled
+
+	UNION ALL
+
+	SELECT 'Detailed' AS type,
+			CAST(b.customer_id AS VARCHAR), 
+			CAST(b.booking_id AS VARCHAR), 
+			SUM(s.quantity) AS total_quantity
+	FROM bookings_senior b
+	LEFT JOIN service_usage_senior s
+		ON b.booking_id = s.booking_id
+	WHERE status = 'Cancelled'
+	GROUP BY b.customer_id, b.booking_id
+	HAVING SUM(s.quantity) > 0 
+
+	
 ----------------------------------------
 
 -- 2. **Doanh thu & Dịch vụ** - Kết quả mong đợi: Một bảng phân tích tổng quan về hiệu suất đặt phòng, doanh thu, khách hàng và dịch vụ
@@ -398,6 +430,43 @@ LEFT JOIN customers_senior c
 	ON b.customer_id = c.customer_id
 GROUP BY c.customer_id
 ORDER BY 2 DESC
-	-- Có bao nhiêu khách hàng có nguy cơ rời bỏ khách sạn?
-	-- Nhóm khách nào sử dụng dịch vụ nhiều nhất?
-	-- Có bao nhiêu % khách quay lại đặt phòng?
+	-- 5.2 Có bao nhiêu khách hàng có nguy cơ rời bỏ khách sạn?
+
+--> Number of customers having over 3 times of cancellation.
+
+SELECT COUNT(*) AS total_customers_with_cancellations
+FROM(SELECT customer_id, 
+		COUNT(CASE WHEN status = 'cancelled' THEN 1 END) AS cancelled_count,
+		COUNT(*) AS total_count
+FROM bookings_senior b
+GROUP BY customer_id
+HAVING COUNT(CASE WHEN status = 'cancelled' THEN 1 END)>=3) AS subquery
+	
+	-- 5.3 Nhóm khách nào sử dụng dịch vụ nhiều nhất?
+
+SELECT r.room_type, COALESCE(SUM(s.quantity),0) AS total_quantity, 
+		COALESCE(SUM(total_price),0) AS total_spend
+FROM bookings_senior b
+INNER JOIN service_usage_senior s
+	ON b.booking_id = s.booking_id
+INNER JOIN rooms_senior r
+	ON b.room_id = r.room_id
+WHERE b.status = 'confirmed'
+GROUP BY r.room_type
+ORDER BY total_spend DESC
+
+	
+	-- 5.4 Có bao nhiêu % khách quay lại đặt phòng? --> Results: 100% returned guests
+WITH booking_count AS (	SELECT customer_id, COUNT(booking_id) AS booking_count
+						FROM bookings_senior
+						GROUP BY customer_id),
+	customer_count AS (	SELECT COUNT(DISTINCT customer_id) AS customer_count
+						FROM booking_count
+						WHERE booking_count > 1 ),
+	all_customer_count AS (SELECT COUNT(DISTINCT customer_id) AS total_customers
+						FROM bookings_senior)
+
+SELECT CAST(customer_count*100.0/total_customers AS DECIMAL (10,2)) AS percent_returned_csm
+FROM customer_count CROSS JOIN all_customer_count
+
+
