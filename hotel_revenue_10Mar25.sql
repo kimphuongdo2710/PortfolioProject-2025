@@ -352,11 +352,52 @@ ORDER BY RIGHT(created_at,4) + LEFT(created_at,2)
 
 --4. **Tỷ lệ hủy phòng**:
     -- Bao nhiêu % đặt phòng bị hủy? Tỷ lệ hủy đặt phòng trung bình là bao nhiêu?
+
+WITH temp_cancelled AS (
+		SELECT COUNT(*) AS cancelled_count
+		FROM bookings_senior
+		WHERE status = 'Cancelled'),
+
+	total_booking AS (
+		SELECT COUNT(*) AS total_bks_count
+		FROM bookings_senior)
+
+SELECT cancelled_count*100.0/total_bks_count
+FROM temp_cancelled, total_booking
+
+SELECT r.room_type, 
+		CAST(COUNT(CASE WHEN b.status = 'Cancelled' THEN 1 END)*100.0 / COUNT(*) AS DECIMAL(10,2)) AS cancellation_rate,
+		AVG(CAST(COUNT(CASE WHEN b.status = 'Cancelled' THEN 1 END)*100.0 / COUNT(*) AS DECIMAL(10,2))) OVER() AS avr_cancl_rate
+FROM bookings_senior b
+LEFT JOIN rooms_senior r
+	ON b.room_id = r.room_id
+GROUP BY r.room_type
+
     -- Có lý do nào phổ biến dẫn đến việc hủy phòng không?
 
 --5. Hướng Dự Đoán & Phân Loại Khách Hàng (Customer Segmentation & Churn Prediction) 
 	--> Một bảng phân tích nhóm khách hàng kèm theo chiến lược cá nhân hóa ưu đãi
-	-- Ai là khách hàng VIP?
+	-- Ai là khách hàng VIP? --> 	Find top 10 customers having the highest expense in room & services.
+
+SELECT TOP 10 c.customer_id, COUNT(b.booking_id) AS booking_count, 
+		SUM(amount) AS room_expense, SUM(total_price) AS service_expense,
+		(SUM(amount) + SUM(total_price)) AS total_expense
+FROM bookings_senior b
+LEFT JOIN customers_senior c
+	ON b.customer_id = c.customer_id
+JOIN payments_senior p
+	ON b.booking_id = p.booking_id
+JOIN service_usage_senior s
+	ON b.booking_id = s.booking_id
+GROUP BY c.customer_id
+ORDER BY total_expense DESC
+
+SELECT c.customer_id, COUNT(b.booking_id) AS booking_count
+FROM bookings_senior b
+LEFT JOIN customers_senior c
+	ON b.customer_id = c.customer_id
+GROUP BY c.customer_id
+ORDER BY 2 DESC
 	-- Có bao nhiêu khách hàng có nguy cơ rời bỏ khách sạn?
 	-- Nhóm khách nào sử dụng dịch vụ nhiều nhất?
 	-- Có bao nhiêu % khách quay lại đặt phòng?
